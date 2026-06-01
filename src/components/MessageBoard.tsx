@@ -8,6 +8,24 @@ interface MessageBoardProps {
     currentUser: "name1" | "name2" | null;
 }
 
+const formatUtc8Time = (dateString: string) => {
+    const date = new Date(dateString);
+    if (Number.isNaN(date.getTime())) return dateString;
+
+    return new Intl.DateTimeFormat("zh-CN", {
+        timeZone: "Asia/Shanghai",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+    }).format(date);
+};
+
+const getMessageTime = (msg: Message) => msg.created_at || msg.date;
+
 export default function MessageBoard({ settings, currentUser }: MessageBoardProps) {
     const [messages, setMessages] = useState<Message[]>([]);
     const [newMessage, setNewMessage] = useState("");
@@ -34,7 +52,7 @@ export default function MessageBoard({ settings, currentUser }: MessageBoardProp
             const { data } = await supabase
                 .from('messages')
                 .select('*')
-                .order('date', { ascending: true });
+                .order('id', { ascending: true });
             
             if (data) setMessages(data);
         };
@@ -117,7 +135,7 @@ export default function MessageBoard({ settings, currentUser }: MessageBoardProp
                                     <div className={`bg-white border-2 border-memphis-black p-3 shadow-[3px_3px_0_rgba(0,0,0,0.1)] ${isRight ? 'bg-memphis-pink' : 'bg-white'}`}>
                                         <div className="text-xs text-gray-500 mb-1 flex justify-between gap-2 items-center">
                                             <span className="font-bold">{senderName}</span>
-                                            <span>{new Date(msg.date).toLocaleString()}</span>
+                                            <span>{formatUtc8Time(getMessageTime(msg))}</span>
                                         </div>
                                         <p className="text-sm md:text-base break-all whitespace-pre-wrap">{msg.text}</p>
                                     </div>

@@ -29,6 +29,7 @@ export interface Message {
     id: string;
     text: string;
     date: string; // timestamp
+    created_at?: string; // server timestamp
     sender?: string; // 'name1' or 'name2'
 }
 
