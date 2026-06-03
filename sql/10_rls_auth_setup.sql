@@ -1,4 +1,4 @@
--- ===== Love 网站 RLS 安全加固 =====
+-- ===== Love 网站 RLS 安全加固 v2 =====
 -- 重要：必须先 DROP 旧的开放策略，否则 permissive policies 会 OR 合并，新策略不生效
 
 -- ========================================
@@ -27,8 +27,59 @@ DROP POLICY IF EXISTS "songs_select" ON public.songs;
 DROP POLICY IF EXISTS "songs_insert" ON public.songs;
 DROP POLICY IF EXISTS "songs_delete" ON public.songs;
 
+-- 之前版本创建的策略（如果已执行过）
+DROP POLICY IF EXISTS "messages_select" ON messages;
+DROP POLICY IF EXISTS "messages_insert" ON messages;
+DROP POLICY IF EXISTS "messages_delete" ON messages;
+DROP POLICY IF EXISTS "public_messages_select" ON public_messages;
+DROP POLICY IF EXISTS "public_messages_insert" ON public_messages;
+DROP POLICY IF EXISTS "public_messages_delete" ON public_messages;
+DROP POLICY IF EXISTS "blessing_stats_select" ON blessing_stats;
+DROP POLICY IF EXISTS "blessing_stats_update" ON blessing_stats;
+DROP POLICY IF EXISTS "photos_select" ON photos;
+DROP POLICY IF EXISTS "photos_insert" ON photos;
+DROP POLICY IF EXISTS "photos_update" ON photos;
+DROP POLICY IF EXISTS "photos_delete" ON photos;
+DROP POLICY IF EXISTS "songs_select" ON songs;
+DROP POLICY IF EXISTS "songs_insert" ON songs;
+DROP POLICY IF EXISTS "songs_delete" ON songs;
+DROP POLICY IF EXISTS "achievements_select" ON achievements;
+DROP POLICY IF EXISTS "achievements_insert" ON achievements;
+DROP POLICY IF EXISTS "achievements_delete" ON achievements;
+DROP POLICY IF EXISTS "settings_select" ON settings;
+DROP POLICY IF EXISTS "settings_update" ON settings;
+DROP POLICY IF EXISTS "settings_insert" ON settings;
+DROP POLICY IF EXISTS "visited_places_select" ON visited_places;
+DROP POLICY IF EXISTS "visited_places_insert" ON visited_places;
+DROP POLICY IF EXISTS "visited_places_delete" ON visited_places;
+
 -- ========================================
--- 第二步：创建新的安全策略
+-- 第二步：创建敏感字段分离表
+-- ========================================
+
+-- 把密码 hash 和 admin_password 移到单独的表
+-- 只有登录用户才能读取
+CREATE TABLE IF NOT EXISTS admin_secrets (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    settings_id uuid REFERENCES settings(id),
+    password1_hash text DEFAULT '',
+    password2_hash text DEFAULT '',
+    admin_password text DEFAULT ''
+);
+
+-- 从现有 settings 表迁移数据（如果有的话）
+INSERT INTO admin_secrets (settings_id, password1_hash, password2_hash, admin_password)
+SELECT id, password1_hash, password2_hash, admin_password
+FROM settings
+WHERE NOT EXISTS (SELECT 1 FROM admin_secrets WHERE admin_secrets.settings_id = settings.id);
+
+-- 从 settings 表删除敏感列（可选，保留的话前端不读就行）
+-- ALTER TABLE settings DROP COLUMN IF EXISTS password1_hash;
+-- ALTER TABLE settings DROP COLUMN IF EXISTS password2_hash;
+-- ALTER TABLE settings DROP COLUMN IF EXISTS admin_password;
+
+-- ========================================
+-- 第三步：创建新的安全策略
 -- ========================================
 
 -- 1. messages（碎碎念留言板）：所有人读，登录用户写
@@ -61,7 +112,7 @@ CREATE POLICY "achievements_select" ON achievements FOR SELECT USING (true);
 CREATE POLICY "achievements_insert" ON achievements FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
 CREATE POLICY "achievements_delete" ON achievements FOR DELETE USING (auth.uid() IS NOT NULL);
 
--- 7. settings（设置）：所有人读（公开字段），登录用户写
+-- 7. settings（设置）：所有人读公开字段，登录用户写
 CREATE POLICY "settings_select" ON settings FOR SELECT USING (true);
 CREATE POLICY "settings_update" ON settings FOR UPDATE USING (auth.uid() IS NOT NULL);
 CREATE POLICY "settings_insert" ON settings FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
@@ -70,3 +121,16 @@ CREATE POLICY "settings_insert" ON settings FOR INSERT WITH CHECK (auth.uid() IS
 CREATE POLICY "visited_places_select" ON visited_places FOR SELECT USING (true);
 CREATE POLICY "visited_places_insert" ON visited_places FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
 CREATE POLICY "visited_places_delete" ON visited_places FOR DELETE USING (auth.uid() IS NOT NULL);
+
+-- 9. admin_secrets（敏感字段）：只有登录用户能读写
+CREATE POLICY "admin_secrets_select" ON admin_secrets FOR SELECT USING (auth.uid() IS NOT NULL);
+CREATE POLICY "admin_secrets_update" ON admin_secrets FOR UPDATE USING (auth.uid() IS NOT NULL);
+CREATE POLICY "admin_secrets_insert" ON admin_secrets FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
+
+-- ========================================
+-- 第四步：创建 Auth 用户
+-- ========================================
+-- 用 Supabase Dashboard 或 service_role key 创建两个用户
+-- 邮箱由密码 hash 生成：
+-- SELECT encode(sha256(('你的密码' || '-love-awacat-salt')::bytea), 'hex');
+-- 取前16位 + @love.awacat.cc

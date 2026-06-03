@@ -97,6 +97,7 @@ export default function Home() {
         });
 
         const fetchSettings = async () => {
+            // Fetch public settings (no sensitive fields)
             const { data, error } = await supabase
                 .from('settings')
                 .select('id, name1, avatar1, name2, avatar2, start_date, show_countdown, show_blessing, show_message_board, show_photo_wall, show_music_player, show_map, show_milestones')
@@ -106,16 +107,32 @@ export default function Home() {
                 setLoading(false);
                 return;
             }
+
+            // Fetch sensitive fields separately (only if authenticated)
+            const session = await getSession();
+            let adminPassword = process.env.NEXT_PUBLIC_SETTINGS_PASSWORD || "admin123";
+
+            if (session) {
+                const { data: secrets } = await supabase
+                    .from('admin_secrets')
+                    .select('admin_password')
+                    .eq('settings_id', data.id)
+                    .single();
+                if (secrets?.admin_password) {
+                    adminPassword = secrets.admin_password;
+                }
+            }
+
             setSettings({
                 id: data.id,
                 name1: data.name1,
                 avatar1: data.avatar1,
-                password1: '',  // Not fetched from DB for security
+                password1: '',  // Not needed anymore, auth via Supabase Auth
                 name2: data.name2,
                 avatar2: data.avatar2,
-                password2: '',  // Not fetched from DB for security
+                password2: '',  // Not needed anymore, auth via Supabase Auth
                 startDate: data.start_date,
-                adminPassword: process.env.NEXT_PUBLIC_SETTINGS_PASSWORD || "admin123",
+                adminPassword: adminPassword,
                 notifyTelegramBotToken: data.notify_telegram_bot_token ?? "",
                 notifyTelegramChatId: data.notify_telegram_chat_id ?? "",
                 notifyWebhookUrl: data.notify_webhook_url ?? "",
@@ -141,59 +158,61 @@ export default function Home() {
     const handleSettingsUpdate = async (newSettings: AppSettings) => {
         setSettings(newSettings);
 
+        // Public fields to settings table
+        const publicFields = {
+            name1: newSettings.name1,
+            avatar1: newSettings.avatar1,
+            name2: newSettings.name2,
+            avatar2: newSettings.avatar2,
+            start_date: newSettings.startDate,
+            notify_telegram_bot_token: newSettings.notifyTelegramBotToken,
+            notify_telegram_chat_id: newSettings.notifyTelegramChatId,
+            notify_webhook_url: newSettings.notifyWebhookUrl,
+            notify_webhook_secret: newSettings.notifyWebhookSecret,
+            notify_only_telegram: newSettings.notifyOnlyTelegram,
+            notify_only_webhook: newSettings.notifyOnlyWebhook,
+            show_countdown: newSettings.showCountdown,
+            show_blessing: newSettings.showBlessing,
+            show_message_board: newSettings.showMessageBoard,
+            show_photo_wall: newSettings.showPhotoWall,
+            show_music_player: newSettings.showMusicPlayer,
+            show_map: newSettings.showMap,
+            show_milestones: newSettings.showAchievements
+        };
+
         if (newSettings.id) {
-            await supabase.from('settings').update({
-                name1: newSettings.name1,
-                avatar1: newSettings.avatar1,
-                password1_hash: newSettings.password1,
-                name2: newSettings.name2,
-                avatar2: newSettings.avatar2,
-                password2_hash: newSettings.password2,
-                start_date: newSettings.startDate,
-                admin_password: newSettings.adminPassword,
-                notify_telegram_bot_token: newSettings.notifyTelegramBotToken,
-                notify_telegram_chat_id: newSettings.notifyTelegramChatId,
-                notify_webhook_url: newSettings.notifyWebhookUrl,
-                notify_webhook_secret: newSettings.notifyWebhookSecret,
-                notify_only_telegram: newSettings.notifyOnlyTelegram,
-                notify_only_webhook: newSettings.notifyOnlyWebhook,
-                show_countdown: newSettings.showCountdown,
-                show_blessing: newSettings.showBlessing,
-                show_message_board: newSettings.showMessageBoard,
-                show_photo_wall: newSettings.showPhotoWall,
-                show_music_player: newSettings.showMusicPlayer,
-                show_map: newSettings.showMap,
-                show_milestones: newSettings.showAchievements
-            }).eq('id', newSettings.id);
+            await supabase.from('settings').update(publicFields).eq('id', newSettings.id);
+
+            // Update admin_password in admin_secrets table
+            const { data: existingSecret } = await supabase
+                .from('admin_secrets')
+                .select('id')
+                .eq('settings_id', newSettings.id)
+                .single();
+
+            if (existingSecret) {
+                await supabase.from('admin_secrets').update({
+                    admin_password: newSettings.adminPassword
+                }).eq('id', existingSecret.id);
+            } else {
+                await supabase.from('admin_secrets').insert({
+                    settings_id: newSettings.id,
+                    admin_password: newSettings.adminPassword
+                });
+            }
         } else {
-            const { data, error } = await supabase.from('settings').insert([{
-                name1: newSettings.name1,
-                avatar1: newSettings.avatar1,
-                password1_hash: newSettings.password1,
-                name2: newSettings.name2,
-                avatar2: newSettings.avatar2,
-                password2_hash: newSettings.password2,
-                start_date: newSettings.startDate,
-                admin_password: newSettings.adminPassword,
-                notify_telegram_bot_token: newSettings.notifyTelegramBotToken,
-                notify_telegram_chat_id: newSettings.notifyTelegramChatId,
-                notify_webhook_url: newSettings.notifyWebhookUrl,
-                notify_webhook_secret: newSettings.notifyWebhookSecret,
-                notify_only_telegram: newSettings.notifyOnlyTelegram,
-                notify_only_webhook: newSettings.notifyOnlyWebhook,
-                show_countdown: newSettings.showCountdown,
-                show_blessing: newSettings.showBlessing,
-                show_message_board: newSettings.showMessageBoard,
-                show_photo_wall: newSettings.showPhotoWall,
-                show_music_player: newSettings.showMusicPlayer,
-                show_map: newSettings.showMap,
-                show_milestones: newSettings.showAchievements
-            }]).select().single();
+            const { data, error } = await supabase.from('settings').insert(publicFields).select().single();
 
             if (error) {
                 console.error("Error creating settings:", error);
             } else if (data) {
                 setSettings(prev => ({ ...prev, id: data.id }));
+
+                // Create admin_secrets row for new settings
+                await supabase.from('admin_secrets').insert({
+                    settings_id: data.id,
+                    admin_password: newSettings.adminPassword
+                });
             }
         }
     };

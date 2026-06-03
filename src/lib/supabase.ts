@@ -36,11 +36,3 @@ export const getSession = async () => {
     return session;
 };
 
-// Helper to create Auth users (run once during setup)
-// Call this from browser console to create the two users
-export const createAuthUser = async (password: string, name: string) => {
-    const email = await deriveEmail(password);
-    console.log(`Creating user for ${name}: email=${email}, password=${password}`);
-    // This needs to be done from Supabase Dashboard or with service_role key
-    return { email, password };
-};
