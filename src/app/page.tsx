@@ -45,10 +45,9 @@ export default function Home() {
     const [unlockError, setUnlockError] = useState("");
     const [loading, setLoading] = useState(true);
 
-    // Auth state — now uses Supabase Auth
+    // Auth state
     const [currentUser, setCurrentUser] = useState<"name1" | "name2" | null>(null);
     const [isLoginOpen, setIsLoginOpen] = useState(false);
-    const [loginEmail, setLoginEmail] = useState("");
     const [loginPassword, setLoginPassword] = useState("");
     const [loginError, setLoginError] = useState("");
     const [isLoggingIn, setIsLoggingIn] = useState(false);
@@ -75,13 +74,11 @@ export default function Home() {
     useEffect(() => {
         const checkAuth = async () => {
             const session = await getSession();
-            if (session?.user?.email) {
-                // Determine if this is name1 or name2 based on email
-                const email = session.user.email;
-                if (email.startsWith("name1")) {
-                    setCurrentUser("name1");
-                } else if (email.startsWith("name2")) {
-                    setCurrentUser("name2");
+            if (session) {
+                // Determine user from stored metadata
+                const role = session.user.user_metadata?.role;
+                if (role === "name1" || role === "name2") {
+                    setCurrentUser(role);
                 }
             }
         };
@@ -89,12 +86,10 @@ export default function Home() {
 
         // Listen for auth state changes
         const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-            if (session?.user?.email) {
-                const email = session.user.email;
-                if (email.startsWith("name1")) {
-                    setCurrentUser("name1");
-                } else if (email.startsWith("name2")) {
-                    setCurrentUser("name2");
+            if (session?.user?.user_metadata?.role) {
+                const role = session.user.user_metadata.role;
+                if (role === "name1" || role === "name2") {
+                    setCurrentUser(role);
                 }
             } else {
                 setCurrentUser(null);
@@ -214,28 +209,53 @@ export default function Home() {
         }
     };
 
-    // Login with Supabase Auth
+    // Login: input password → derive email → Supabase Auth
     const handleLogin = async () => {
-        if (!loginEmail.trim() || !loginPassword.trim()) {
-            setLoginError("请输入邮箱和密码");
+        if (!loginPassword.trim()) {
+            setLoginError("请输入密码");
             return;
         }
 
         setIsLoggingIn(true);
         setLoginError("");
 
-        const { data, error } = await signIn(loginEmail.trim(), loginPassword);
+        // Try as name1 first, then name2
+        let success = false;
 
-        if (error) {
-            setLoginError("登录失败，请检查邮箱和密码");
-            setIsLoggingIn(false);
-            return;
+        // Try name1's password
+        if (loginPassword === settings.password1) {
+            const { error } = await signIn(loginPassword);
+            if (!error) {
+                // Set role in user metadata
+                const { data: { session } } = await supabase.auth.getSession();
+                if (session) {
+                    await supabase.auth.updateUser({ data: { role: "name1" } });
+                }
+                setCurrentUser("name1");
+                success = true;
+            }
         }
 
-        // Auth state change listener will handle setCurrentUser
-        setIsLoginOpen(false);
-        setLoginEmail("");
-        setLoginPassword("");
+        // Try name2's password
+        if (!success && loginPassword === settings.password2) {
+            const { error } = await signIn(loginPassword);
+            if (!error) {
+                const { data: { session } } = await supabase.auth.getSession();
+                if (session) {
+                    await supabase.auth.updateUser({ data: { role: "name2" } });
+                }
+                setCurrentUser("name2");
+                success = true;
+            }
+        }
+
+        if (!success) {
+            setLoginError("密码错误 / Incorrect Password");
+        } else {
+            setIsLoginOpen(false);
+            setLoginPassword("");
+        }
+
         setIsLoggingIn(false);
     };
 
@@ -409,21 +429,13 @@ export default function Home() {
             {/* Photo Wall */}
             {settings.showPhotoWall && <PhotoWall settings={settings} currentUser={currentUser} />}
 
-            {/* Login Modal — now uses Supabase Auth */}
+            {/* Login Modal — password only, Supabase Auth under the hood */}
             {isLoginOpen && (
                 <div className="fixed inset-0 bg-black/50 z-50 flex justify-center items-center p-4">
                     <div className="memphis-card bg-memphis-cyan w-full max-w-xs relative flex flex-col gap-3 items-center">
                         <button onClick={() => setIsLoginOpen(false)} className="absolute top-2 right-2 font-bold hover:scale-110 transition">&times;</button>
                         <h3 className="font-bold text-lg">用户登录</h3>
-                        <p className="text-sm">请输入您的邮箱和密码</p>
-                        <input
-                            type="email"
-                            className="memphis-input w-full"
-                            value={loginEmail}
-                            onChange={(e) => setLoginEmail(e.target.value)}
-                            placeholder="Email"
-                            onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
-                        />
+                        <p className="text-sm">请输入您的专属密码</p>
                         <input
                             type="password"
                             className="memphis-input w-full"
