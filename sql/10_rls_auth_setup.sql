@@ -89,7 +89,10 @@ ALTER TABLE settings DROP COLUMN IF EXISTS admin_password;
 CREATE OR REPLACE VIEW public_settings AS
 SELECT id, name1, avatar1, name2, avatar2, start_date,
        show_countdown, show_blessing, show_message_board,
-       show_photo_wall, show_music_player, show_map, show_milestones
+       show_photo_wall, show_music_player, show_map, show_milestones,
+       notify_telegram_bot_token, notify_telegram_chat_id,
+       notify_webhook_url, notify_webhook_secret,
+       notify_only_telegram, notify_only_webhook
 FROM settings;
 
 -- 授予所有人读取权限
