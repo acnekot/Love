@@ -1,4 +1,4 @@
--- ===== Love 网站 RLS 安全加固 v2 =====
+-- ===== Love 网站 RLS 安全加固 v3 =====
 -- 重要：必须先 DROP 旧的开放策略，否则 permissive policies 会 OR 合并，新策略不生效
 
 -- ========================================
@@ -52,13 +52,15 @@ DROP POLICY IF EXISTS "settings_insert" ON settings;
 DROP POLICY IF EXISTS "visited_places_select" ON visited_places;
 DROP POLICY IF EXISTS "visited_places_insert" ON visited_places;
 DROP POLICY IF EXISTS "visited_places_delete" ON visited_places;
+DROP POLICY IF EXISTS "admin_secrets_select" ON admin_secrets;
+DROP POLICY IF EXISTS "admin_secrets_update" ON admin_secrets;
+DROP POLICY IF EXISTS "admin_secrets_insert" ON admin_secrets;
 
 -- ========================================
--- 第二步：创建敏感字段分离表
+-- 第二步：创建敏感字段分离表 + 删除 settings 敏感列
 -- ========================================
 
 -- 把密码 hash 和 admin_password 移到单独的表
--- 只有登录用户才能读取
 CREATE TABLE IF NOT EXISTS admin_secrets (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     settings_id uuid REFERENCES settings(id),
@@ -73,13 +75,28 @@ SELECT id, password1_hash, password2_hash, admin_password
 FROM settings
 WHERE NOT EXISTS (SELECT 1 FROM admin_secrets WHERE admin_secrets.settings_id = settings.id);
 
--- 从 settings 表删除敏感列（可选，保留的话前端不读就行）
--- ALTER TABLE settings DROP COLUMN IF EXISTS password1_hash;
--- ALTER TABLE settings DROP COLUMN IF EXISTS password2_hash;
--- ALTER TABLE settings DROP COLUMN IF EXISTS admin_password;
+-- 从 settings 表删除敏感列
+ALTER TABLE settings DROP COLUMN IF EXISTS password1_hash;
+ALTER TABLE settings DROP COLUMN IF EXISTS password2_hash;
+ALTER TABLE settings DROP COLUMN IF EXISTS admin_password;
 
 -- ========================================
--- 第三步：创建新的安全策略
+-- 第三步：创建 public_settings View（只暴露公开字段）
+-- ========================================
+
+-- View 会自动跟随 settings 表的列变化
+-- 即使将来 settings 表加了新列，View 也不会暴露它们（除非手动添加）
+CREATE OR REPLACE VIEW public_settings AS
+SELECT id, name1, avatar1, name2, avatar2, start_date,
+       show_countdown, show_blessing, show_message_board,
+       show_photo_wall, show_music_player, show_map, show_milestones
+FROM settings;
+
+-- 授予所有人读取权限
+GRANT SELECT ON public_settings TO anon, authenticated;
+
+-- ========================================
+-- 第四步：创建新的安全策略
 -- ========================================
 
 -- 1. messages（碎碎念留言板）：所有人读，登录用户写
@@ -112,8 +129,8 @@ CREATE POLICY "achievements_select" ON achievements FOR SELECT USING (true);
 CREATE POLICY "achievements_insert" ON achievements FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
 CREATE POLICY "achievements_delete" ON achievements FOR DELETE USING (auth.uid() IS NOT NULL);
 
--- 7. settings（设置）：所有人读公开字段，登录用户写
-CREATE POLICY "settings_select" ON settings FOR SELECT USING (true);
+-- 7. settings（设置）：只有登录用户能读写（通过 public_settings View 对外暴露公开字段）
+CREATE POLICY "settings_select" ON settings FOR SELECT USING (auth.uid() IS NOT NULL);
 CREATE POLICY "settings_update" ON settings FOR UPDATE USING (auth.uid() IS NOT NULL);
 CREATE POLICY "settings_insert" ON settings FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
 
@@ -128,9 +145,14 @@ CREATE POLICY "admin_secrets_update" ON admin_secrets FOR UPDATE USING (auth.uid
 CREATE POLICY "admin_secrets_insert" ON admin_secrets FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
 
 -- ========================================
--- 第四步：创建 Auth 用户
+-- 第五步：禁用 Supabase Auth 自助注册
 -- ========================================
--- 用 Supabase Dashboard 或 service_role key 创建两个用户
--- 邮箱由密码 hash 生成：
--- SELECT encode(sha256(('你的密码' || '-love-awacat-salt')::bytea), 'hex');
--- 取前16位 + @love.awacat.cc
+-- ⚠️ 这一步需要在 Supabase Dashboard 手动操作：
+-- Authentication → Providers → Email → 关闭 "Allow new users to sign up"
+-- 这样只有通过 setup-auth-users.mjs 创建的用户才能登录
+
+-- ========================================
+-- 第六步：创建 Auth 用户
+-- ========================================
+-- 运行：node scripts/setup-auth-users.mjs
+-- 需要环境变量：SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, PASSWORD1, PASSWORD2

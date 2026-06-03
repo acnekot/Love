@@ -97,10 +97,10 @@ export default function Home() {
         });
 
         const fetchSettings = async () => {
-            // Fetch public settings (no sensitive fields)
+            // Fetch public settings from view (no sensitive fields exposed)
             const { data, error } = await supabase
-                .from('settings')
-                .select('id, name1, avatar1, name2, avatar2, start_date, show_countdown, show_blessing, show_message_board, show_photo_wall, show_music_player, show_map, show_milestones')
+                .from('public_settings')
+                .select('*')
                 .single();
 
             if (!data) {

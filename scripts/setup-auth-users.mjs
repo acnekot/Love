@@ -9,6 +9,9 @@
  * - PASSWORD1: 第一个用户的密码（草莓）
  * - PASSWORD2: 第二个用户的密码（小眠）
  * 
+ * ⚠️ 重要：deriveEmail 函数必须和 src/lib/supabase.ts 里的完全一致！
+ * 如果修改了 salt 或 hash 算法，两边都要改。
+ * 
  * 这个脚本会：
  * 1. 从密码推导出邮箱
  * 2. 创建两个 Supabase Auth 用户
