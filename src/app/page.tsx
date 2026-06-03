@@ -99,7 +99,7 @@ export default function Home() {
         const fetchSettings = async () => {
             const { data, error } = await supabase
                 .from('settings')
-                .select('*')
+                .select('id, name1, avatar1, name2, avatar2, start_date, show_countdown, show_blessing, show_message_board, show_photo_wall, show_music_player, show_map, show_milestones')
                 .single();
 
             if (!data) {
@@ -110,12 +110,12 @@ export default function Home() {
                 id: data.id,
                 name1: data.name1,
                 avatar1: data.avatar1,
-                password1: data.password1_hash,
+                password1: '',  // Not fetched from DB for security
                 name2: data.name2,
                 avatar2: data.avatar2,
-                password2: data.password2_hash,
+                password2: '',  // Not fetched from DB for security
                 startDate: data.start_date,
-                adminPassword: data.admin_password || process.env.NEXT_PUBLIC_SETTINGS_PASSWORD || "admin123",
+                adminPassword: process.env.NEXT_PUBLIC_SETTINGS_PASSWORD || "admin123",
                 notifyTelegramBotToken: data.notify_telegram_bot_token ?? "",
                 notifyTelegramChatId: data.notify_telegram_chat_id ?? "",
                 notifyWebhookUrl: data.notify_webhook_url ?? "",
@@ -219,41 +219,23 @@ export default function Home() {
         setIsLoggingIn(true);
         setLoginError("");
 
-        // Try as name1 first, then name2
-        let success = false;
+        // Try to sign in — Supabase Auth will check the password
+        const { data, error } = await signIn(loginPassword);
 
-        // Try name1's password
-        if (loginPassword === settings.password1) {
-            const { error } = await signIn(loginPassword);
-            if (!error) {
-                // Set role in user metadata
-                const { data: { session } } = await supabase.auth.getSession();
-                if (session) {
-                    await supabase.auth.updateUser({ data: { role: "name1" } });
-                }
-                setCurrentUser("name1");
-                success = true;
-            }
-        }
-
-        // Try name2's password
-        if (!success && loginPassword === settings.password2) {
-            const { error } = await signIn(loginPassword);
-            if (!error) {
-                const { data: { session } } = await supabase.auth.getSession();
-                if (session) {
-                    await supabase.auth.updateUser({ data: { role: "name2" } });
-                }
-                setCurrentUser("name2");
-                success = true;
-            }
-        }
-
-        if (!success) {
+        if (error) {
             setLoginError("密码错误 / Incorrect Password");
-        } else {
+            setIsLoggingIn(false);
+            return;
+        }
+
+        // Get role from user metadata
+        const role = data.user?.user_metadata?.role;
+        if (role === "name1" || role === "name2") {
+            setCurrentUser(role);
             setIsLoginOpen(false);
             setLoginPassword("");
+        } else {
+            setLoginError("用户身份未识别");
         }
 
         setIsLoggingIn(false);
@@ -309,7 +291,10 @@ export default function Home() {
     };
 
     useEffect(() => {
-        if (!currentUser) return;
+        if (!currentUser) {
+            setPartnerOnline(false);
+            return;
+        }
 
         const channel = supabase.channel('online_users');
 
