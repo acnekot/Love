@@ -63,11 +63,14 @@ DROP POLICY IF EXISTS "admin_secrets_insert" ON admin_secrets;
 -- 把密码 hash 和 admin_password 移到单独的表
 CREATE TABLE IF NOT EXISTS admin_secrets (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    settings_id uuid REFERENCES settings(id),
+    settings_id bigint REFERENCES settings(id),
     password1_hash text DEFAULT '',
     password2_hash text DEFAULT '',
     admin_password text DEFAULT ''
 );
+
+-- 启用 RLS
+ALTER TABLE admin_secrets ENABLE ROW LEVEL SECURITY;
 
 -- 从现有 settings 表迁移数据（如果有的话）
 INSERT INTO admin_secrets (settings_id, password1_hash, password2_hash, admin_password)
@@ -128,12 +131,13 @@ CREATE POLICY "songs_insert" ON songs FOR INSERT WITH CHECK (auth.uid() IS NOT N
 CREATE POLICY "songs_delete" ON songs FOR DELETE USING (auth.uid() IS NOT NULL);
 
 -- 6. achievements（成就）：所有人读，登录用户写
+ALTER TABLE achievements ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "achievements_select" ON achievements FOR SELECT USING (true);
 CREATE POLICY "achievements_insert" ON achievements FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
 CREATE POLICY "achievements_delete" ON achievements FOR DELETE USING (auth.uid() IS NOT NULL);
 
--- 7. settings（设置）：只有登录用户能读写（通过 public_settings View 对外暴露公开字段）
-CREATE POLICY "settings_select" ON settings FOR SELECT USING (auth.uid() IS NOT NULL);
+-- 7. settings（设置）：所有人可读公开字段（敏感列已删除），登录用户可写
+CREATE POLICY "settings_select" ON settings FOR SELECT USING (true);
 CREATE POLICY "settings_update" ON settings FOR UPDATE USING (auth.uid() IS NOT NULL);
 CREATE POLICY "settings_insert" ON settings FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
 
@@ -159,3 +163,6 @@ CREATE POLICY "admin_secrets_insert" ON admin_secrets FOR INSERT WITH CHECK (aut
 -- ========================================
 -- 运行：node scripts/setup-auth-users.mjs
 -- 需要环境变量：SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, PASSWORD1, PASSWORD2
+
+-- 刷新 PostgREST schema 缓存（DDL 后必须）
+NOTIFY pgrst, 'reload schema';

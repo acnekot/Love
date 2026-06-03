@@ -230,6 +230,7 @@ export default function Home() {
 
     // Login: input password → derive email → Supabase Auth
     const handleLogin = async () => {
+        if (isLoggingIn) return; // 防重入
         if (!loginPassword.trim()) {
             setLoginError("请输入密码");
             return;
@@ -255,6 +256,9 @@ export default function Home() {
             setLoginPassword("");
         } else {
             setLoginError("用户身份未识别");
+            // role 不匹配时清理 session，避免残留 authenticated 状态
+            await signOut();
+            setCurrentUser(null);
         }
 
         setIsLoggingIn(false);
